@@ -1,0 +1,72 @@
+# supernote-pdf-server configuration
+# Copy this file to supernote-pdf-server.conf and edit as needed.
+# Both supernote-pdf-convert.sh and generate-index-page.sh source this file.
+
+
+# =============================================================================
+# Directories
+# =============================================================================
+
+# Source .note files (synced from device via Syncthing or similar)
+NOTE_DIR="/files/current/supernote/Note"
+
+# Output PDF directory (served by Caddy or another web server)
+PDF_DIR="/files/current/supernote/pdf"
+
+# Path to the supernote-tool binary.
+# supernote-tool (https://github.com/jya-dev/supernote-tool) is distributed as
+# the PyPI package 'supernotelib'. Install it using your preferred method:
+#   pipx:      pipx install supernotelib
+#   uv:        uv tool install supernotelib
+#   venv:      python3 -m venv ~/supernote-tool && ~/supernote-tool/bin/pip install supernotelib
+# pipx and uv both place the binary at ~/.local/bin/supernote-tool (the default
+# below). If using a manual venv, update this path to match.
+SN_TOOL="$HOME/.local/bin/supernote-tool"
+
+
+# =============================================================================
+# Archiving
+# =============================================================================
+
+# Whether to archive PDFs whose source .note no longer exists.
+# If true, orphaned PDFs are moved to ARCHIVE_PDF_DIR instead of deleted.
+# If false, orphaned PDFs are deleted.
+ARCHIVE_ENABLED=true
+
+# Directory for archived PDFs (only used when ARCHIVE_ENABLED=true)
+ARCHIVE_PDF_DIR="/files/current/supernote/archive_pdf"
+
+
+# =============================================================================
+# PDF conversion
+# =============================================================================
+
+# ImageMagick density (DPI) for PDF output.
+# This must match the pixel dimensions of your device's PNG output divided
+# by the physical page size, so that the PDF renders at the correct zoom level.
+#
+#   Supernote Manta (A4, 1920x2560 px):  1920 / 8.27 in ≈ 232
+#   Supernote Nomad (A5, 1404x1872 px):  1404 / 5.83 in ≈ 241
+DENSITY=232
+
+# Background colour for converted PDFs.
+# The default grey reduces eye strain and better matches the e-ink appearance.
+# Set to white (#ffffff) to disable colour substitution.
+BG_COLOR="#d0d0d0"
+
+# Whether to strip links between notes from converted PDFs.
+# Links between notes are broken in this serving context (PDFs served
+# independently, not as an integrated notebook), so stripping them avoids
+# confusion. Set to false to preserve links.
+STRIP_LINKS=true
+
+
+# =============================================================================
+# Logging
+# =============================================================================
+
+# Whether to log conversion events (conversions, errors, archives).
+LOGGING_ENABLED=true
+
+# Log file path (only used when LOGGING_ENABLED=true)
+LOG="$HOME/.local/state/supernote-pdf-server.log"

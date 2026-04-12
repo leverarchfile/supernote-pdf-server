@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Converts changed Supernote .note files to PDFs and optionally archives
+# orphaned PDFs. Calls generate-index-page.sh at the end to rebuild the
+# HTML index page. Runs every minute via cron.
+#
+# Crontab entry:
+#   * * * * * /path/to/supernote-pdf-convert.sh
+#
+# See supernote-pdf-server.conf.example for configuration and setup instructions.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONF="$SCRIPT_DIR/supernote-pdf-server.conf"
+
+# Load configuration
+if [ ! -f "$CONF" ]; then
+    printf 'Error: config file not found: %s\n' "$CONF" >&2
+    printf 'Copy supernote-pdf-server.conf.example to supernote-pdf-server.conf and edit it.\n' >&2
+    exit 1
+fi
+# shellcheck source=supernote-pdf-server.conf
+. "$CONF"
+
+# Preflight checks
+_preflight_error=0
+_require_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'Error: required command not found: %s\n' "$1" >&2
+        _preflight_error=1
+    fi
+}
+_require_file() {
+    if [ ! -f "$1" ]; then
+        printf 'Error: required file not found: %s\n' "$1" >&2
+        _preflight_error=1
+    fi
+}
+
+_require_file "$SN_TOOL"
+_require_cmd convert   # ImageMagick
+
+[ "$_preflight_error" -eq 0 ] || exit 1
+
+# Logging (no-op when disabled)
+_log() {
+    [ "${LOGGING_ENABLED:-true}" = true ] || return 0
+    printf '[%s] %-10s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"
+}
+
+(
+# Stop silently if another instance is already running.
+flock -x -n 200 || exit 0
+
+[ -d "$NOTE_DIR" ] || { printf 'Error: NOTE_DIR not found: %s\n' "$NOTE_DIR" >&2; exit 1; }
+mkdir -p "$PDF_DIR"
+
+# Build the ImageMagick color-substitution arguments.
+# If BG_COLOR is white, skip substitution entirely.
+_imagick_color_args=()
+if [ "${BG_COLOR:-#d0d0d0}" != "#ffffff" ]; then
+    _imagick_color_args=(-fuzz 2% -fill "${BG_COLOR:-#d0d0d0}" -opaque white)
+fi
+
+# Build the supernote-tool link flag.
+_sn_link_flag=()
+if [ "${STRIP_LINKS:-true}" = true ]; then
+    _sn_link_flag=(--no-link)
+fi
+
+# Convert .note files that are newer than their corresponding PDF.
+find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
+    rel="${note#"$NOTE_DIR"/}"               # relative path, preserving subdirs
+    pdf="$PDF_DIR/${rel%.note}.pdf"          # mirror structure, swap extension
+
+    [ "$note" -nt "$pdf" ] || continue       # skip if PDF is up to date
+
+    mkdir -p "$(dirname "$pdf")"
+
+    # Write to a temp file in the same directory so the final mv is atomic,
+    # preventing Syncthing or the web server from seeing a partial PDF.
+    pdf_tmp=$(mktemp "${pdf}.tmp.XXXXXX")
+
+    tmpdir=$(mktemp -d)
+    if "$SN_TOOL" convert -t png -a "${_sn_link_flag[@]}" "$note" "$tmpdir/" >/dev/null 2>&1 \
+        && convert "$tmpdir"/* -density "${DENSITY:-232}" \
+            "${_imagick_color_args[@]}" "$pdf_tmp" >/dev/null 2>&1 \
+        && mv "$pdf_tmp" "$pdf"; then
+        _log "converted" "$rel"
+    else
+        rm -f "$pdf_tmp"
+        _log "ERROR" "$rel"
+    fi
+    rm -rf "$tmpdir"
+done
+
+# Handle orphaned PDFs (source .note no longer exists).
+find "$PDF_DIR" -name '*.pdf' -print0 | while IFS= read -r -d '' pdf; do
+    rel="${pdf#"$PDF_DIR"/}"
+    [ -f "$NOTE_DIR/${rel%.pdf}.note" ] && continue
+
+    if [ "${ARCHIVE_ENABLED:-true}" = true ]; then
+        mkdir -p "$ARCHIVE_PDF_DIR"
+        archive_dest="$ARCHIVE_PDF_DIR/$rel"
+        mkdir -p "$(dirname "$archive_dest")"
+        mv "$pdf" "$archive_dest"
+        _log "archived" "$rel"
+    else
+        rm -f "$pdf"
+        _log "removed" "$rel"
+    fi
+done
+find "$PDF_DIR" -mindepth 1 -type d -empty -delete
+
+# Regenerate the HTML index page.
+"$SCRIPT_DIR/generate-index-page.sh"
+
+) 200>/tmp/supernote-pdf-convert.lock
