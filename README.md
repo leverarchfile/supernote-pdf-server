@@ -55,13 +55,7 @@ cp supernote-pdf-server.conf.example supernote-pdf-server.conf
 
 Edit `supernote-pdf-server.conf` and set your directory paths (the defaults are placeholders). As a minimum, you need to set `NOTE_DIR`, `PDF_DIR`, and confirm `SN_TOOL` points to your supernote-tool binary.
 
-**4. Make the scripts executable:**
-
-```bash
-chmod +x supernote-pdf-convert.sh generate-index-page.sh
-```
-
-**5. Run it once by hand:**
+**4. Run it once by hand:**
 
 ```bash
 ./supernote-pdf-convert.sh
@@ -70,7 +64,7 @@ chmod +x supernote-pdf-convert.sh generate-index-page.sh
 Check the output and the log before adding the cron entry. Configuration and
 dependency problems are reported there, and cron discards them.
 
-**6. Add the cron entry:**
+**5. Add the cron entry:**
 
 ```bash
 crontab -e
