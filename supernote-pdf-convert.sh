@@ -101,6 +101,11 @@ find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
     # preventing Syncthing or the web server from seeing a partial PDF.
     pdf_tmp=$(mktemp "${pdf}.tmp.XXXXXX")
 
+    # mktemp creates the file 0600 and mv preserves the mode, so without this
+    # the finished PDF is readable only by the user running this script and
+    # the web server cannot serve it.
+    chmod 644 "$pdf_tmp"
+
     # stderr is captured rather than discarded so failures can be diagnosed
     # from the log. timeout stops a hung command from holding the lock.
     tmpdir=$(mktemp -d)
