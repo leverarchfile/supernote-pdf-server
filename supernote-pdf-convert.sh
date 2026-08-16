@@ -105,8 +105,14 @@ find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
     # from the log. timeout stops a hung command from holding the lock.
     tmpdir=$(mktemp -d)
     err="$tmpdir/stderr"
+    # The output argument must be a filename ending in .png, not a directory:
+    # supernote-tool derives each page's name from it with os.path.splitext,
+    # inserting _<n> before the extension (page_00.png, page_01.png, ...).
+    # -t png does not supply an extension, so a bare directory would yield
+    # extensionless files named _00, _01, ... and the *.png glob below would
+    # match nothing.
     timeout 300 "$SN_TOOL" convert -t png -a "${_sn_link_flag[@]}" \
-        "$note" "$tmpdir/" >/dev/null 2>"$err"
+        "$note" "$tmpdir/page.png" >/dev/null 2>"$err"
     rc=$?
     if [ "$rc" -eq 0 ]; then
         timeout 300 "$IM" "$tmpdir"/*.png -density "${DENSITY:-232}" \
