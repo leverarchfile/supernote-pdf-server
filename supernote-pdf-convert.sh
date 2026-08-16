@@ -115,8 +115,14 @@ find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
         "$note" "$tmpdir/page.png" >/dev/null 2>"$err"
     rc=$?
     if [ "$rc" -eq 0 ]; then
+        # The PDF: prefix is required: ImageMagick infers the output format
+        # from the filename extension, and the temp name ends in .tmp.XXXXXX.
+        # Without it a single-page note is silently written as PNG data under
+        # a .pdf name, and a multi-page note fails outright. The temp name
+        # cannot simply end in .pdf — the orphan/index/cleanup passes below
+        # glob for *.pdf and would pick up files still being written.
         timeout 300 "$IM" "$tmpdir"/*.png -density "${DENSITY:-232}" \
-            "${_imagick_color_args[@]}" "$pdf_tmp" >/dev/null 2>"$err"
+            "${_imagick_color_args[@]}" "PDF:$pdf_tmp" >/dev/null 2>"$err"
         rc=$?
     fi
     if [ "$rc" -eq 0 ]; then
