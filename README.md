@@ -20,7 +20,7 @@ Conversion is incremental: only `.note` files that have changed or been added si
 
 - Linux (uses `flock`, `sort -z`, and other GNU utilities)
 - [supernote-tool](https://github.com/jya-dev/supernote-tool) — install via uv, pipx, or a manual venv
-- ImageMagick (`convert`)
+- ImageMagick (`magick` or `convert`)
 - A web server that can serve static files (Caddy, nginx, Apache, etc.)
 - A way to sync `.note` files to the server (Syncthing, rsync, etc.)
 
@@ -61,7 +61,16 @@ Edit `supernote-pdf-server.conf` and set your directory paths (the defaults are 
 chmod +x supernote-pdf-convert.sh generate-index-page.sh
 ```
 
-**5. Add the cron entry:**
+**5. Run it once by hand:**
+
+```bash
+./supernote-pdf-convert.sh
+```
+
+Check the output and the log before adding the cron entry. Configuration and
+dependency problems are reported there, and cron discards them.
+
+**6. Add the cron entry:**
 
 ```bash
 crontab -e
@@ -141,10 +150,39 @@ With `LOGGING_ENABLED=true`, each run appends to the log file:
 ```
 [2026-04-11 08:32:43] converted   computing/2026-computing.note
 [2026-04-11 08:32:48] ERROR       notes/broken.note
+    supernotelib.exceptions.UnsupportedFileFormat: unsupported file format
+[2026-04-11 08:32:55] TIMEOUT     notes/huge.note
 [2026-04-11 08:33:01] archived    old/note.pdf
 ```
 
+Statuses are `converted`, `ERROR`, `TIMEOUT` (a conversion command exceeded the
+300-second limit), `archived`, and `removed`. On `ERROR`, the last few lines of
+the failing command's error output are appended below the log line.
+
+When a note fails, a `<name>.pdf.failed` marker is written next to where its PDF
+would go, carrying the note's modification time. The note is not retried — and no
+further errors are logged for it — until the `.note` file changes again. To force
+a retry, touch the `.note` file or delete the marker. Markers are cleaned up
+automatically when the source note is deleted.
+
 The log is not rotated automatically. Use `logrotate` if it grows too large.
+
+## Troubleshooting
+
+**A note logs `ERROR`.** The error detail in the log, directly under the `ERROR`
+line, is the actual output from supernote-tool or ImageMagick. If it mentions
+`UnsupportedFileFormat`, supernotelib is usually older than the device firmware
+that wrote the file — upgrade it:
+
+```bash
+uv tool upgrade supernotelib   # or: pipx upgrade supernotelib
+```
+
+Then touch the `.note` file (or delete the `.pdf.failed` marker) so it is retried.
+
+**Nothing happens at all under cron.** Run `./supernote-pdf-convert.sh` by hand.
+Configuration errors are written to the log as well as stderr, except for a
+missing `supernote-pdf-server.conf`, which can only be reported on stderr.
 
 ## Acknowledgements
 

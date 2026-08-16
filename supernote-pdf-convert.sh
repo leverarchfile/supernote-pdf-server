@@ -20,37 +20,53 @@ fi
 # shellcheck source=supernote-pdf-server.conf
 . "$CONF"
 
+# Logging (no-op when disabled)
+_log() {
+    [ "${LOGGING_ENABLED:-true}" = true ] || return 0
+    [ -n "${LOG:-}" ] || return 0
+    printf '[%s] %-10s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"
+}
+
+# Append captured command output (stderr) to the log, indented, so a failure
+# records why it failed rather than just that it failed.
+_log_detail() {
+    [ "${LOGGING_ENABLED:-true}" = true ] || return 0
+    [ -n "${LOG:-}" ] || return 0
+    [ -s "$1" ] || return 0
+    tail -n 15 "$1" | sed 's/^/    /' >> "$LOG"
+}
+
+# Errors go to both stderr and the log; under cron, stderr is discarded.
+_err() {
+    printf 'Error: %s\n' "$1" >&2
+    _log "ERROR" "$1"
+}
+
 # Preflight checks
 _preflight_error=0
-_require_cmd() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        printf 'Error: required command not found: %s\n' "$1" >&2
-        _preflight_error=1
-    fi
-}
 _require_file() {
     if [ ! -f "$1" ]; then
-        printf 'Error: required file not found: %s\n' "$1" >&2
+        _err "required file not found: $1"
         _preflight_error=1
     fi
 }
 
 _require_file "$SN_TOOL"
-_require_cmd convert   # ImageMagick
+
+# ImageMagick 7 ships 'magick', ImageMagick 6 ships 'convert'.
+IM=$(command -v magick || command -v convert)
+if [ -z "$IM" ]; then
+    _err "required command not found: magick or convert (ImageMagick)"
+    _preflight_error=1
+fi
 
 [ "$_preflight_error" -eq 0 ] || exit 1
-
-# Logging (no-op when disabled)
-_log() {
-    [ "${LOGGING_ENABLED:-true}" = true ] || return 0
-    printf '[%s] %-10s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"
-}
 
 (
 # Stop silently if another instance is already running.
 flock -x -n 200 || exit 0
 
-[ -d "$NOTE_DIR" ] || { printf 'Error: NOTE_DIR not found: %s\n' "$NOTE_DIR" >&2; exit 1; }
+[ -d "$NOTE_DIR" ] || { _err "NOTE_DIR not found: $NOTE_DIR"; exit 1; }
 mkdir -p "$PDF_DIR"
 
 # Build the ImageMagick color-substitution arguments.
@@ -70,8 +86,14 @@ fi
 find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
     rel="${note#"$NOTE_DIR"/}"               # relative path, preserving subdirs
     pdf="$PDF_DIR/${rel%.note}.pdf"          # mirror structure, swap extension
+    marker="${pdf}.failed"                   # records a previous failed attempt
 
     [ "$note" -nt "$pdf" ] || continue       # skip if PDF is up to date
+
+    # A previous run already failed on this exact version of the note; retry
+    # only once the note itself changes, so a broken note is logged once
+    # rather than every minute. Delete the marker to force a retry.
+    [ -e "$marker" ] && ! [ "$note" -nt "$marker" ] && continue
 
     mkdir -p "$(dirname "$pdf")"
 
@@ -79,15 +101,35 @@ find "$NOTE_DIR" -name '*.note' -print0 | while IFS= read -r -d '' note; do
     # preventing Syncthing or the web server from seeing a partial PDF.
     pdf_tmp=$(mktemp "${pdf}.tmp.XXXXXX")
 
+    # stderr is captured rather than discarded so failures can be diagnosed
+    # from the log. timeout stops a hung command from holding the lock.
     tmpdir=$(mktemp -d)
-    if "$SN_TOOL" convert -t png -a "${_sn_link_flag[@]}" "$note" "$tmpdir/" >/dev/null 2>&1 \
-        && convert "$tmpdir"/* -density "${DENSITY:-232}" \
-            "${_imagick_color_args[@]}" "$pdf_tmp" >/dev/null 2>&1 \
-        && mv "$pdf_tmp" "$pdf"; then
+    err="$tmpdir/stderr"
+    timeout 300 "$SN_TOOL" convert -t png -a "${_sn_link_flag[@]}" \
+        "$note" "$tmpdir/" >/dev/null 2>"$err"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        timeout 300 "$IM" "$tmpdir"/*.png -density "${DENSITY:-232}" \
+            "${_imagick_color_args[@]}" "$pdf_tmp" >/dev/null 2>"$err"
+        rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+        mv "$pdf_tmp" "$pdf" 2>"$err"
+        rc=$?
+    fi
+
+    if [ "$rc" -eq 0 ]; then
+        rm -f "$marker"
         _log "converted" "$rel"
     else
         rm -f "$pdf_tmp"
-        _log "ERROR" "$rel"
+        touch -r "$note" "$marker"           # marker carries the note's mtime
+        if [ "$rc" -eq 124 ]; then
+            _log "TIMEOUT" "$rel"
+        else
+            _log "ERROR" "$rel"
+            _log_detail "$err"
+        fi
     fi
     rm -rf "$tmpdir"
 done
@@ -108,6 +150,16 @@ find "$PDF_DIR" -name '*.pdf' -print0 | while IFS= read -r -d '' pdf; do
         _log "removed" "$rel"
     fi
 done
+
+# Drop failure markers whose source .note no longer exists.
+find "$PDF_DIR" -name '*.pdf.failed' -print0 | while IFS= read -r -d '' marker; do
+    rel="${marker#"$PDF_DIR"/}"
+    [ -f "$NOTE_DIR/${rel%.pdf.failed}.note" ] || rm -f "$marker"
+done
+
+# Remove temp files left behind by a run that was killed mid-conversion.
+find "$PDF_DIR" -name '*.pdf.tmp.*' -mmin +60 -delete
+
 find "$PDF_DIR" -mindepth 1 -type d -empty -delete
 
 # Regenerate the HTML index page.

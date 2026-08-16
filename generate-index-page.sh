@@ -66,7 +66,10 @@ HTML
 find "$PDF_DIR" -name '*.pdf' -print0 | sort -z | while IFS= read -r -d '' pdf; do
     rel="${pdf#"$PDF_DIR"/}"
     # URL-encode the relative path for use as the ?file= query parameter.
-    encoded=$(printf '%s' "$rel" | sed 's/%/%25/g; s/ /%20/g; s/#/%23/g; s/?/%3F/g; s/&/%26/g')
+    # '%' must be encoded first. '+' would otherwise be decoded as a space by
+    # the viewer's URLSearchParams parsing; the quote and angle brackets are
+    # encoded so the result is safe inside the href attribute as well.
+    encoded=$(printf '%s' "$rel" | sed "s/%/%25/g; s/ /%20/g; s/#/%23/g; s/?/%3F/g; s/&/%26/g; s/+/%2B/g; s/\"/%22/g; s/</%3C/g; s/>/%3E/g; s/'/%27/g")
     href="pdfjs/web/viewer.html?file=../../${encoded}"
     # HTML-escape the display name (strip .pdf extension).
     display=$(printf '%s' "${rel%.pdf}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
