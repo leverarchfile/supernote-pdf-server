@@ -103,6 +103,7 @@ All options are documented in `supernote-pdf-server.conf.example`. Key settings:
 | `DENSITY` | `232` | ImageMagick DPI for PDF output (see below) |
 | `BG_COLOR` | `#d0d0d0` | Background colour substitution |
 | `STRIP_LINKS` | `true` | Strip links between notes from PDFs |
+| `TZ` | system time zone | Time zone for index page stamps and log timestamps, e.g. `Pacific/Auckland` |
 | `LOGGING_ENABLED` | `true` | Log conversion events |
 | `LOG` | `~/.local/state/supernote-pdf-server.log` | Log file path |
 

@@ -20,6 +20,12 @@ fi
 # shellcheck source=supernote-pdf-server.conf
 . "$CONF"
 
+# TZ in the config is a plain shell variable; export it so date(1) and the
+# child generate-index-page.sh see it. Unset, the system time zone applies.
+if [ -n "${TZ:-}" ]; then
+    export TZ
+fi
+
 # Logging (no-op when disabled)
 _log() {
     [ "${LOGGING_ENABLED:-true}" = true ] || return 0

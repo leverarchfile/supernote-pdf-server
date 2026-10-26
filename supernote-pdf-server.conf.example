@@ -62,6 +62,17 @@ STRIP_LINKS=true
 
 
 # =============================================================================
+# Time zone
+# =============================================================================
+
+# Time zone for the "Last updated" and "Last change" stamps on the index page
+# and for log timestamps. Leave unset to use the server's system time zone,
+# which on most servers (and under cron) is UTC. Use a name from the tz
+# database, e.g. "Pacific/Auckland", "Europe/London", "America/New_York".
+#TZ="Pacific/Auckland"
+
+
+# =============================================================================
 # Logging
 # =============================================================================
 

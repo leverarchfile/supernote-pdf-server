@@ -18,6 +18,12 @@ fi
 # shellcheck source=supernote-pdf-server.conf
 . "$CONF"
 
+# TZ in the config is a plain shell variable; export it so date(1) sees it.
+# Unset, the system time zone applies.
+if [ -n "${TZ:-}" ]; then
+    export TZ
+fi
+
 if [ ! -d "$PDF_DIR" ]; then
     printf 'Error: PDF_DIR not found: %s\n' "$PDF_DIR" >&2
     exit 1
@@ -76,7 +82,15 @@ find "$PDF_DIR" -name '*.pdf' -print0 | sort -z | while IFS= read -r -d '' pdf; 
     printf '<a href="%s" target="_blank">%s</a>\n' "$href" "$display"
 done
 
-printf '<p class="meta">Last updated: %s</p>\n' "$(date '+%Y-%m-%d %H:%M')"
+# "Last updated" is when this page was generated (every cron run, so it shows
+# the job is alive). "Last change" is the mtime of the newest PDF, i.e. when a
+# changed note was last converted. Omitted when there are no PDFs yet.
+newest=$(find "$PDF_DIR" -name '*.pdf' -printf '%T@\n' | sort -n | tail -n 1)
+printf '<p class="meta">Last updated: %s' "$(date '+%Y-%m-%d %H:%M')"
+if [ -n "$newest" ]; then
+    printf '<br>Last change: %s' "$(date -d "@${newest%.*}" '+%Y-%m-%d %H:%M')"
+fi
+printf '</p>\n'
 
 cat <<'HTML'
 </body>
